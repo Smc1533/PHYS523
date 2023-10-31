@@ -3,6 +3,65 @@
 #include <SparkFun_u-blox_GNSS_v3.h> //http://librarymanager/All#SparkFun_u-blox_GNSS_v3
 SFE_UBLOX_GNSS myGNSS;
 SX1262 radio = new Module(D36, D40, D44, D39, SPI1);
+
+void printRELPOSNEDdata(UBX_NAV_RELPOSNED_data_t *ubxDataStruct)
+{
+  Serial.println();
+  Serial.println("New RELPOSNED data received:");
+
+  // double won't work well on AVR platforms...
+  Serial.print("relPosN (m): ");
+  Serial.println(((double)ubxDataStruct->relPosN / 100) + ((double)ubxDataStruct->relPosHPN / 10000), 4); // Convert cm and 0.1mm to m
+  Serial.print("relPosE (m): ");
+  Serial.println(((double)ubxDataStruct->relPosE / 100) + ((double)ubxDataStruct->relPosHPE / 10000), 4);
+  Serial.print("relPosD (m): ");
+  Serial.println(((double)ubxDataStruct->relPosD / 100) + ((double)ubxDataStruct->relPosHPD / 10000), 4);
+
+  Serial.print("relPosLength (m): ");
+  Serial.println(((double)ubxDataStruct->relPosLength / 100) + ((double)ubxDataStruct->relPosHPLength / 10000), 4); // Convert cm to m
+  Serial.print("relPosHeading (Deg): ");
+  Serial.println((double)ubxDataStruct->relPosHeading / 100000); // Convert deg * 1e-5 to degrees
+
+  Serial.print("accN (m): ");
+  Serial.println((double)ubxDataStruct->accN / 10000, 4); // Convert 0.1mm to m
+  Serial.print("accE (m): ");
+  Serial.println((double)ubxDataStruct->accE / 10000, 4);
+  Serial.print("accD (m): ");
+  Serial.println((double)ubxDataStruct->accD / 10000, 4);
+
+  Serial.print("gnssFixOk: ");
+  if (ubxDataStruct->flags.bits.gnssFixOK == true)
+    Serial.println("x");
+  else
+    Serial.println("");
+
+  Serial.print("diffSolution: ");
+  if (ubxDataStruct->flags.bits.diffSoln == true)
+    Serial.println("x");
+  else
+    Serial.println("");
+
+  Serial.print("relPosValid: ");
+  if (ubxDataStruct->flags.bits.relPosValid == true)
+    Serial.println("x");
+  else
+    Serial.println("");
+
+  Serial.print("carrier Solution Type: ");
+  if (ubxDataStruct->flags.bits.carrSoln == 0)
+    Serial.println("None");
+  else if (ubxDataStruct->flags.bits.carrSoln == 1)
+    Serial.println("Float");
+  else if (ubxDataStruct->flags.bits.carrSoln == 2)
+    Serial.println("Fixed");
+
+  Serial.print("isMoving: ");
+  if (ubxDataStruct->flags.bits.isMoving == true)
+    Serial.println("x");
+  else
+    Serial.println("");
+}
+
 void printPVTdata(UBX_NAV_PVT_data_t *ubxDataStruct)
 {
   double latitude = ubxDataStruct->lat; // Print the latitude
@@ -50,6 +109,11 @@ void printPVTdata(UBX_NAV_PVT_data_t *ubxDataStruct)
   uint32_t hAcc = ubxDataStruct->hAcc; // Print the horizontal accuracy estimate
   Serial.print(F("  Horizontal Accuracy Estimate: "));
   Serial.print(hAcc);
+  Serial.print(F(" (mm)"));
+
+  uint32_t vAcc = ubxDataStruct->vAcc; // Print the horizontal accuracy estimate
+  Serial.print(F("  Vertical Accuracy Estimate: "));
+  Serial.print(vAcc);
   Serial.print(F(" (mm)"));
 
   Serial.println();    
@@ -156,6 +220,7 @@ void setup()
   myGNSS.setAutoPVTcallbackPtr(&printPVTdata);
   myGNSS.setRTCM1005InputcallbackPtr(&printRTCMdata1005); // Set up a callback to print the RTCM 1005 Antenna Reference Position from the correction data
   myGNSS.setRTCM1006InputcallbackPtr(&printRTCMdata1006);
+  myGNSS.setAutoRELPOSNEDcallbackPtr(&printRELPOSNEDdata); 
 
   
 }
@@ -177,13 +242,34 @@ void loop()
     if (state == RADIOLIB_ERR_NONE) {
 
     
-      Serial1.write(rtcData,numBytes);
+    Serial1.write(rtcData,numBytes);
       //ubx_send_rtcm3_i2c(numBytes,rtcData);
       //Wire.write(rtcData,numBytes);
-    myGNSS.pushRawData(rtcData, numBytes);
+    //myGNSS.pushRawData(rtcData, numBytes);
     //Serial.println("RTCM Data Recieved");
     
-    
+    static uint8_t store[256];
+    static uint16_t numBytes = 0; // Record the number of bytes received from rtcmSerial
+  
+    while ((Serial1.available()) && (numBytes < 256)) // Check if data has been received
+    {
+      store[numBytes++] = Serial1.read(); // Read a byte from rtcmSerial and store it
+    }
+  
+    if (numBytes > 0) // Check if data was received
+    {
+    //Serial.print("Pushing ");
+    //Serial.print(numBytes);
+    //Serial.println(" bytes via I2C");
+
+    //On processors which have large I2C buffers, like the ESP32, we can make the push more efficient by
+    //calling setI2CTransactionSize first to increase the maximum I2C transmission size
+    //(setI2CTransactionSize only needs to be called once, so it should be in setup, not loop)
+    //myGNSS.setI2CTransactionSize(128); // Send up to 128 bytes in one I2C transmission
+
+      myGNSS.pushRawData(((uint8_t *)&store), numBytes); // Push the RTCM data via I2C
+      numBytes = 0; // Reset numBytes
+    }
     
   
 
