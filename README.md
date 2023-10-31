@@ -16,3 +16,4 @@ Things to Test:
 3. Inductive Charging - Not Pressing
 4. Usefulness of IMU - Do after GNSS System for sure works
 5. Adjust the code to provide data in a way that may contain actual insight into the health of the horse
+6. Test the necessity of a grounding plate on GPS antenna, and if necessary research other options for grounding outside of the heavy steel plate
