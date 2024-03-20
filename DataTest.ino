@@ -5,11 +5,14 @@
 #include <SD.h>
 #include <SPI.h>
 #include <SparkFun_ISM330DHCX.h>
+#include <stdio.h> 
+
 
 Sd2Card card;
 SdVolume volume;
 SdFile root;
 File myFile;
+
 const int chipSelect = 2;
 
 const int rs = 8, en = 9, d4 = 4, d5 = 5, d6 = 6, d7 = 7;
@@ -21,6 +24,50 @@ SX1262 radio = new Module(D36, D40, D44, D39, SPI1);
 SparkFun_ISM330DHCX myISM; 
 sfe_ism_data_t accelData; 
 sfe_ism_data_t gyroData; 
+
+void doubleToString(double value, char* buffer) {
+  // Handle negative numbers
+  bool isNegative = false;
+  if (value < 0.0) {
+    isNegative = true;
+    value = -value;
+  }
+
+  // Convert integer part to string
+  long intPart = (long)value;
+  sprintf(buffer, "%ld", intPart);
+
+  // Find the end of the integer part
+  int length = strlen(buffer);
+
+  // Add negative sign if needed
+  if (isNegative) {
+    memmove(buffer + 1, buffer, length + 1); // Shift the string one position to the right
+    buffer[0] = '-';
+  }
+
+  // Check for fractional part
+  if (value != intPart) {
+    // Add decimal point
+    buffer[length] = '.';
+    length++;
+
+    // Convert fractional part to string
+    double fractionalPart = value - intPart;
+    int decimalPlaces = 6; // Maximum number of decimal places to consider
+    while (decimalPlaces > 0) {
+      fractionalPart *= 10;
+      int digit = (int)fractionalPart;
+      buffer[length] = '0' + digit;
+      length++;
+      fractionalPart -= digit;
+      decimalPlaces--;
+    }
+  }
+
+  // Null-terminate the string
+  buffer[length] = '\0';
+}
 
 void printPVTdata(UBX_NAV_PVT_data_t *ubxDataStruct)
 {
@@ -75,33 +122,10 @@ uint32_t vAcc = ubxDataStruct->vAcc; // Print the horizontal accuracy estimate
   Serial.print(vAcc);
   Serial.print(F(" (mm)"));
   Serial.println();
-int32_t ECEFX = myGNSS.getHighResECEFX();
-int8_t ECEFXHp = myGNSS.getHighResECEFXHp();
-int32_t ECEFY = myGNSS.getHighResECEFY();
-int8_t ECEFYHp = myGNSS.getHighResECEFYHp();
-int32_t ECEFZ = myGNSS.getHighResECEFZ();
-int8_t ECEFZHp = myGNSS.getHighResECEFZHp();
-uint32_t accuracy = myGNSS.getPositionAccuracy();
-double d_ECEFX;
-double d_ECEFY;
-double d_ECEFZ;
-d_ECEFX = ((double)ECEFX) / 100.0; // Convert from cm to m
-d_ECEFX += ((double)ECEFXHp) / 10000.0; // Now add the high resolution component ( mm * 10^-1 = m * 10^-4 )
-d_ECEFY = ((double)ECEFY) / 100.0; // Convert from cm to m
-d_ECEFY += ((double)ECEFYHp) / 10000.0; // Now add the high resolution component ( mm * 10^-1 = m * 10^-4 )
-d_ECEFZ = ((double)ECEFZ) / 100.0; // Convert from cm to m
-d_ECEFZ += ((double)ECEFZHp) / 10000.0; // Now add the high resolution component ( mm * 10^-1 = m * 10^-4 )
-myFile = SD.open("test.txt", FILE_WRITE);
-myISM.checkStatus();
-myISM.getAccel(&accelData);
-myISM.getGyro(&gyroData);
-int time = millis();
-char X[200];
-sprintf(X, "%.8d %.8d %.8d %.8d %.8d %.8d %.8f %.8f %.8f %.8f %.8f %.8f %.8d %.8d", d_ECEFX, d_ECEFY,d_ECEFZ,hAcc,hAcc,vAcc,accelData.xData,accelData.yData,accelData.zData,gyroData.xData,gyroData.yData,gyroData.zData,time,carrSoln);
-//myFile.println(X + " " + String(d_ECEFY) + " " + String(d_ECEFZ) + " " + String(hAcc) + " " + String(hAcc) + " " + String(vAcc) + " " + String(accelData.xData) + " " + String(accelData.yData) + " " + String(accelData.zData) + " " + String(gyroData.xData) + " " + String(gyroData.yData) + " " + String(gyroData.zData) + " " + String(millis()) + " "+ String(fixType));
-myFile.println(X);
-memset(X, 0, sizeof X);
-myFile.close();
+  /*
+
+*/
+
 }
 void setup() {
   // put your setup code here, to run once:
@@ -187,6 +211,8 @@ void setup() {
   myGNSS.setVal8(UBLOX_CFG_MSGOUT_NMEA_ID_VTG_UART1, 0); // Disable VTG to reduce the load on UART1
 
   myGNSS.setAutoPVTcallbackPtr(&printPVTdata);
+  myGNSS.setAutoPVT(true); // Tell the GPS to "send" each solution automatically
+  myGNSS.setAutoHPPOSLLH(true);
 
 }
 void loop() {
@@ -201,8 +227,72 @@ void loop() {
     uint8_t rtcData[numBytes];
     int state = radio.readData(rtcData, numBytes);
     if (state == RADIOLIB_ERR_NONE) {
-    myGNSS.pushRawData(rtcData, numBytes);
+      //Serial1.write(rtcData,numBytes);
+      
+      myGNSS.pushRawData(rtcData, numBytes);
       }
     }
+  }
+  if ((myGNSS.getHPPOSLLH()) || (myGNSS.getPVT()))
+  {
+  myFile = SD.open("test.txt", FILE_WRITE);
+  myISM.checkStatus();
+  myISM.getAccel(&accelData);
+  myISM.getGyro(&gyroData);
+  int32_t ECEFX = myGNSS.getHighResECEFX();
+  int8_t ECEFXHp = myGNSS.getHighResECEFXHp();
+  int32_t ECEFY = myGNSS.getHighResECEFY();
+  int8_t ECEFYHp = myGNSS.getHighResECEFYHp();
+  int32_t ECEFZ = myGNSS.getHighResECEFZ();
+  int8_t ECEFZHp = myGNSS.getHighResECEFZHp();
+  //uint32_t accuracy = myGNSS.getPositionAccuracy();
+  double d_ECEFX;
+  double d_ECEFY;
+  double d_ECEFZ;
+  d_ECEFX = ((double)ECEFX) / 100.0; // Convert from cm to m
+  d_ECEFX += ((double)ECEFXHp) / 10000.0; // Now add the high resolution component ( mm * 10^-1 = m * 10^-4 )
+  d_ECEFY = ((double)ECEFY) / 100.0; // Convert from cm to m
+  d_ECEFY += ((double)ECEFYHp) / 10000.0; // Now add the high resolution component ( mm * 10^-1 = m * 10^-4 )
+  d_ECEFZ = ((double)ECEFZ) / 100.0; // Convert from cm to m
+  d_ECEFZ += ((double)ECEFZHp) / 10000.0; // Now add the high resolution component ( mm * 10^-1 = m * 10^-4 )
+  uint32_t hAcc = myGNSS.getHorizontalAccuracy();
+  uint32_t vAcc = myGNSS.getVerticalAccuracy();
+  uint32_t carrSoln = myGNSS.getCarrierSolutionType();
+  int time = millis();
+  double gx = gyroData.xData;
+  double gy = gyroData.yData;
+  double gz = gyroData.zData;
+  double ax = accelData.xData;
+  double ay = accelData.yData;
+  double az = accelData.zData;
+  
+char bufferx[15];
+doubleToString(d_ECEFX, bufferx);
+char buffery[15];
+doubleToString(d_ECEFY, buffery);
+char bufferz[10];
+doubleToString(d_ECEFZ, bufferz);
+
+char buffergx[10];
+doubleToString(gx, buffergx);
+char buffergy[10];
+doubleToString(gy, buffergy);
+char buffergz[10];
+doubleToString(gz, buffergz);
+
+char bufferax[10];
+doubleToString(ax, bufferax);
+char bufferay[10];
+doubleToString(ay,  bufferay);
+char bufferaz[10];
+doubleToString(az, bufferaz);
+
+String FinalS = String(bufferx) + " " + String(buffery) + " " + String(bufferz) + " " + String(hAcc) + " " + String(hAcc) + " " + String(vAcc) + " " + String(bufferax) + " " + String(bufferay) + " " + String(bufferaz) + " " + String(buffergx) + " " + String(buffergy) + " " + String(buffergz) + " " + String(time) + " " + String(carrSoln);
+
+  //sprintf(X, "%d %d %d %.2f %.2f %.2f %.2f %.2f %.2f %.2f %.2f %.2f %f %d", d_ECEFX, d_ECEFY,d_ECEFZ,hAcc,hAcc,vAcc,ax,ay,az,gx,gy,gz,time,carrSoln);
+  myFile.println(FinalS);
+  //myFile.println(X);
+  //memset(X, 0, sizeof X);
+  myFile.close();
   }
 }
